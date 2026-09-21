@@ -1,0 +1,18 @@
+# OS / Dropbox cruft
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local secrets (never commit; the app stores config in browser localStorage)
+.env
+.env.local
+config.local.json
+
+# Netlify CLI state (per-machine, not source)
+.netlify/

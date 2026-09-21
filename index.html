@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R2 Bucket Manager</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: Canvas;
+    --fg: CanvasText;
+    --panel: color-mix(in oklab, CanvasText 4%, Canvas);
+    --border: color-mix(in oklab, CanvasText 20%, Canvas);
+    --muted: color-mix(in oklab, CanvasText 55%, Canvas);
+    --accent: #3b82f6;
+    --accent-tint: color-mix(in oklab, #3b82f6 12%, Canvas);
+    --danger: #dc2626;
+    --danger-tint: color-mix(in oklab, #dc2626 12%, Canvas);
+    --ok: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    margin: 0; padding: 20px; max-width: 1400px;
+    background: var(--bg); color: var(--fg);
+  }
+  h1 { margin: 0 0 4px; font-size: 22px; font-weight: 600; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .toolbar { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+  #status { margin-left: auto; color: var(--muted); font-size: 12px; }
+  #status.err { color: var(--danger); }
+  #status.ok { color: var(--ok); }
+  input[type="text"], input[type="password"], input[type="search"] {
+    padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--fg); font: inherit;
+  }
+  input[type="text"]:focus, input[type="password"]:focus, input[type="search"]:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent;
+  }
+  button {
+    padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--fg); cursor: pointer; font: inherit;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  button.primary:hover:not(:disabled) { filter: brightness(1.1); }
+  button.danger { border-color: var(--danger); color: var(--danger); }
+  button.danger:hover:not(:disabled) { background: var(--danger); color: white; }
+  #config {
+    display: none; padding: 16px; border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 16px; background: var(--panel);
+  }
+  #config.open { display: block; }
+  #config .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  #config label { display: block; font-size: 12px; color: var(--muted); }
+  #config label input { width: 100%; margin-top: 4px; }
+  #config .actions { margin-top: 12px; display: flex; gap: 8px; }
+  #config .hint {
+    font-size: 12px; color: var(--muted); margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  #config .hint code {
+    background: color-mix(in oklab, CanvasText 8%, Canvas);
+    padding: 1px 4px; border-radius: 3px; font-size: 11px;
+  }
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px;
+    background: var(--bg); cursor: pointer; user-select: none;
+    transition: border-color 0.1s, background 0.1s;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .card:hover { border-color: color-mix(in oklab, CanvasText 40%, Canvas); }
+  .card.selected { border-color: var(--accent); background: var(--accent-tint); }
+  .card .thumb {
+    width: 100%; aspect-ratio: 1; border-radius: 4px;
+    background: color-mix(in oklab, CanvasText 5%, Canvas);
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+    position: relative;
+  }
+  .card .thumb img { width: 100%; height: 100%; object-fit: contain; }
+  .card .thumb .ext {
+    font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: 0.5px;
+  }
+  .card .name { font-size: 12px; word-break: break-all; line-height: 1.3; }
+  .card .meta { font-size: 11px; color: var(--muted); }
+  .card .checkbox {
+    position: absolute; top: 6px; left: 6px;
+    background: rgba(255,255,255,0.9); border-radius: 3px;
+    width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border);
+  }
+  @media (prefers-color-scheme: dark) {
+    .card .checkbox { background: rgba(0,0,0,0.6); }
+  }
+  .card.selected .checkbox { background: var(--accent); border-color: var(--accent); color: white; }
+  .empty {
+    padding: 40px; text-align: center; color: var(--muted);
+    border: 1px dashed var(--border); border-radius: 8px;
+  }
+  #modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+    padding: 20px;
+  }
+  #modal.open { display: flex; }
+  .modal-inner {
+    background: var(--bg); padding: 20px; border-radius: 8px;
+    max-width: 480px; width: 100%; max-height: 80vh; display: flex; flex-direction: column;
+  }
+  .modal-inner h3 { margin: 0 0 12px; }
+  .modal-inner .list {
+    overflow-y: auto; flex: 1; margin-bottom: 12px; font-size: 12px;
+    border: 1px solid var(--border); border-radius: 4px; padding: 8px;
+  }
+  .modal-inner .list div { padding: 2px 0; word-break: break-all; }
+  .modal-inner .actions { display: flex; gap: 8px; justify-content: flex-end; }
+</style>
+</head>
+<body>
+<h1>R2 Bucket Manager</h1>
+<div class="subtitle">Browse, preview, and selectively delete objects in a Cloudflare R2 bucket.</div>
+
+<div class="toolbar">
+  <button id="btn-config">⚙ Config</button>
+  <input type="search" id="prefix" placeholder="prefix filter (e.g. 2026/)" size="20">
+  <button id="btn-list">Refresh</button>
+  <button id="btn-more" hidden>Load more</button>
+  <button id="btn-select-all">Select all</button>
+  <button id="btn-select-none" disabled>Clear selection</button>
+  <button class="danger" id="btn-delete" disabled>Delete selected</button>
+  <span id="status">Not configured</span>
+</div>
+
+<div id="config">
+  <div class="fields">
+    <label>Account ID<input id="cfg-account" type="text" autocomplete="off" spellcheck="false"></label>
+    <label>Access Key ID<input id="cfg-key" type="text" autocomplete="off" spellcheck="false"></label>
+    <label>Secret Access Key<input id="cfg-secret" type="password" autocomplete="off" spellcheck="false"></label>
+    <label>Bucket<input id="cfg-bucket" type="text" autocomplete="off" spellcheck="false"></label>
+    <label>Public URL prefix (optional; enables faster image previews)<input id="cfg-public" type="text" placeholder="https://cdn.example.com/" autocomplete="off" spellcheck="false"></label>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-save">Save</button>
+    <button id="btn-clear">Clear stored credentials</button>
+  </div>
+  <div class="hint">
+    Credentials are stored in this browser's <code>localStorage</code> for this origin only — nothing is sent anywhere except directly to R2. Create an <b>R2 API Token</b> scoped to a single bucket with <b>Object Read &amp; Write</b> in the Cloudflare dashboard. The bucket needs a <b>CORS rule</b> allowing <code>GET</code> and <code>DELETE</code> from this page's origin — see <code>README.md</code>. If a public URL prefix is set (custom domain fronting the bucket), image previews use it directly; otherwise they're served via short-lived presigned URLs.
+  </div>
+</div>
+
+<div id="grid" class="grid"></div>
+
+<div id="modal">
+  <div class="modal-inner">
+    <h3 id="modal-title">Delete these files?</h3>
+    <div class="list" id="modal-list"></div>
+    <div class="actions">
+      <button id="btn-cancel">Cancel</button>
+      <button class="danger" id="btn-confirm">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { AwsClient } from 'https://cdn.jsdelivr.net/npm/aws4fetch@1.0.20/+esm';
+
+const LS_KEY = 'r2mgr.config';
+const IMAGE_RE = /\.(png|jpe?g|gif|webp|svg|avif|bmp|tiff?|heic|heif)$/i;
+const PAGE_SIZE = 100;
+
+const els = {
+  config:      document.getElementById('config'),
+  account:     document.getElementById('cfg-account'),
+  key:         document.getElementById('cfg-key'),
+  secret:      document.getElementById('cfg-secret'),
+  bucket:      document.getElementById('cfg-bucket'),
+  public:      document.getElementById('cfg-public'),
+  prefix:      document.getElementById('prefix'),
+  grid:        document.getElementById('grid'),
+  status:      document.getElementById('status'),
+  more:        document.getElementById('btn-more'),
+  delete:      document.getElementById('btn-delete'),
+  selectNone:  document.getElementById('btn-select-none'),
+  modal:       document.getElementById('modal'),
+  modalTitle:  document.getElementById('modal-title'),
+  modalList:   document.getElementById('modal-list'),
+};
+
+let config = null;
+let client = null;
+let continuationToken = null;
+let objects = [];
+
+function encodeKey(key) {
+  return key.split('/').map(encodeURIComponent).join('/');
+}
+
+function isImage(key) { return IMAGE_RE.test(key); }
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 ** 2) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024 ** 3) return (bytes / 1024 ** 2).toFixed(1) + ' MB';
+  return (bytes / 1024 ** 3).toFixed(2) + ' GB';
+}
+
+function setStatus(text, kind = '') {
+  els.status.textContent = text;
+  els.status.className = kind;
+}
+
+function loadConfig() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY)) || null; }
+  catch { return null; }
+}
+
+function applyConfigToForm(c) {
+  els.account.value = c?.account || '';
+  els.key.value     = c?.key     || '';
+  els.secret.value  = c?.secret  || '';
+  els.bucket.value  = c?.bucket  || '';
+  els.public.value  = c?.public  || '';
+}
+
+function readConfigFromForm() {
+  return {
+    account: els.account.value.trim(),
+    key:     els.key.value.trim(),
+    secret:  els.secret.value.trim(),
+    bucket:  els.bucket.value.trim(),
+    public:  els.public.value.trim(),
+  };
+}
+
+function saveConfig() {
+  const c = readConfigFromForm();
+  if (!c.account || !c.key || !c.secret || !c.bucket) {
+    setStatus('Account ID, key, secret, and bucket are all required', 'err');
+    return;
+  }
+  config = c;
+  localStorage.setItem(LS_KEY, JSON.stringify(config));
+  makeClient();
+  els.config.classList.remove('open');
+  list(true);
+}
+
+function clearConfig() {
+  localStorage.removeItem(LS_KEY);
+  config = null; client = null;
+  applyConfigToForm({});
+  objects = []; render();
+  setStatus('Cleared. Enter credentials above.', '');
+}
+
+function makeClient() {
+  if (!config) return;
+  client = new AwsClient({
+    accessKeyId:     config.key,
+    secretAccessKey: config.secret,
+    service:         's3',
+    region:          'auto',
+  });
+}
+
+function endpoint() {
+  return `https://${config.account}.r2.cloudflarestorage.com/${config.bucket}`;
+}
+
+async function previewUrl(key) {
+  if (config.public) {
+    const base = config.public.endsWith('/') ? config.public : config.public + '/';
+    return base + encodeKey(key);
+  }
+  const url = endpoint() + '/' + encodeKey(key);
+  const signed = await client.sign(url, { aws: { signQuery: true } });
+  return signed.url;
+}
+
+async function list(reset) {
+  if (!client) {
+    els.config.classList.add('open');
+    setStatus('Not configured', '');
+    return;
+  }
+  if (reset) { objects = []; continuationToken = null; }
+  setStatus('Loading…', '');
+  els.more.hidden = true;
+
+  const url = new URL(endpoint());
+  url.searchParams.set('list-type', '2');
+  url.searchParams.set('max-keys', String(PAGE_SIZE));
+  const prefix = els.prefix.value.trim();
+  if (prefix) url.searchParams.set('prefix', prefix);
+  if (continuationToken) url.searchParams.set('continuation-token', continuationToken);
+
+  let res;
+  try {
+    const signed = await client.sign(url.toString(), { method: 'GET' });
+    res = await fetch(signed);
+  } catch (e) {
+    setStatus(`Network error: ${e.message}`, 'err');
+    return;
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    setStatus(`Error ${res.status}: ${body.slice(0, 200) || res.statusText}`, 'err');
+    return;
+  }
+  const xml = await res.text();
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.querySelector('parsererror')) {
+    setStatus('Failed to parse response', 'err');
+    return;
+  }
+  const contents = [...doc.querySelectorAll('Contents')].map(c => ({
+    key:          c.querySelector('Key')?.textContent          || '',
+    size:         parseInt(c.querySelector('Size')?.textContent || '0', 10),
+    lastModified: c.querySelector('LastModified')?.textContent  || '',
+    checked:      false,
+  }));
+  objects.push(...contents);
+  const isTruncated = doc.querySelector('IsTruncated')?.textContent === 'true';
+  const nextToken   = doc.querySelector('NextContinuationToken')?.textContent;
+  continuationToken = isTruncated && nextToken ? nextToken : null;
+  els.more.hidden = !continuationToken;
+
+  setStatus(
+    `${objects.length} object${objects.length === 1 ? '' : 's'} loaded` +
+    (continuationToken ? ' (more available)' : ''),
+    'ok',
+  );
+  render();
+}
+
+function render() {
+  els.grid.innerHTML = '';
+  if (objects.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = client ? 'No objects match.' : 'Configure credentials to begin.';
+    els.grid.appendChild(empty);
+    updateActionButtons();
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const obj of objects) frag.appendChild(cardFor(obj));
+  els.grid.appendChild(frag);
+  updateActionButtons();
+}
+
+function cardFor(obj) {
+  const card = document.createElement('div');
+  card.className = 'card' + (obj.checked ? ' selected' : '');
+  card.addEventListener('click', () => {
+    obj.checked = !obj.checked;
+    card.classList.toggle('selected', obj.checked);
+    card.querySelector('.checkbox').textContent = obj.checked ? '✓' : '';
+    updateActionButtons();
+  });
+
+  const thumb = document.createElement('div');
+  thumb.className = 'thumb';
+  const checkbox = document.createElement('div');
+  checkbox.className = 'checkbox';
+  checkbox.textContent = obj.checked ? '✓' : '';
+  thumb.appendChild(checkbox);
+
+  if (isImage(obj.key)) {
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.alt = obj.key;
+    previewUrl(obj.key)
+      .then(u => { img.src = u; })
+      .catch(() => { thumb.replaceChildren(checkbox, extLabel(obj.key)); });
+    thumb.appendChild(img);
+  } else {
+    thumb.appendChild(extLabel(obj.key));
+  }
+  card.appendChild(thumb);
+
+  const name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = obj.key;
+  card.appendChild(name);
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  const date = obj.lastModified ? new Date(obj.lastModified).toLocaleString() : '';
+  meta.textContent = `${formatSize(obj.size)} · ${date}`;
+  card.appendChild(meta);
+
+  return card;
+}
+
+function extLabel(key) {
+  const el = document.createElement('div');
+  el.className = 'ext';
+  const dot = key.lastIndexOf('.');
+  el.textContent = dot >= 0 ? key.slice(dot + 1).toUpperCase().slice(0, 6) : 'FILE';
+  return el;
+}
+
+function updateActionButtons() {
+  const n = objects.filter(o => o.checked).length;
+  els.delete.disabled = n === 0;
+  els.selectNone.disabled = n === 0;
+  els.delete.textContent = n === 0 ? 'Delete selected' : `Delete ${n} selected`;
+}
+
+function selectAll() {
+  for (const o of objects) o.checked = true;
+  render();
+}
+
+function selectNone() {
+  for (const o of objects) o.checked = false;
+  render();
+}
+
+function confirmDelete(keys) {
+  return new Promise(resolve => {
+    els.modalTitle.textContent = `Delete ${keys.length} file${keys.length === 1 ? '' : 's'}?`;
+    els.modalList.innerHTML = '';
+    for (const k of keys) {
+      const div = document.createElement('div');
+      div.textContent = k;
+      els.modalList.appendChild(div);
+    }
+    els.modal.classList.add('open');
+    const finish = (ok) => {
+      els.modal.classList.remove('open');
+      document.getElementById('btn-confirm').onclick = null;
+      document.getElementById('btn-cancel').onclick = null;
+      resolve(ok);
+    };
+    document.getElementById('btn-confirm').onclick = () => finish(true);
+    document.getElementById('btn-cancel').onclick  = () => finish(false);
+  });
+}
+
+async function deleteSelected() {
+  const selected = objects.filter(o => o.checked);
+  if (selected.length === 0) return;
+  const ok = await confirmDelete(selected.map(o => o.key));
+  if (!ok) return;
+
+  setStatus(`Deleting ${selected.length}…`, '');
+  els.delete.disabled = true;
+
+  const results = await Promise.allSettled(selected.map(async obj => {
+    const url = endpoint() + '/' + encodeKey(obj.key);
+    const signed = await client.sign(url, { method: 'DELETE' });
+    const res = await fetch(signed);
+    if (!res.ok) throw new Error(`${res.status} ${obj.key}`);
+    return obj.key;
+  }));
+
+  const succeededKeys = new Set(
+    results.filter(r => r.status === 'fulfilled').map(r => r.value),
+  );
+  const failed = results.filter(r => r.status === 'rejected');
+  objects = objects.filter(o => !succeededKeys.has(o.key));
+  render();
+
+  if (failed.length === 0) {
+    setStatus(`Deleted ${succeededKeys.size}`, 'ok');
+  } else {
+    setStatus(`Deleted ${succeededKeys.size}, ${failed.length} failed — see console`, 'err');
+    for (const f of failed) console.error('Delete failure:', f.reason);
+  }
+}
+
+document.getElementById('btn-config').addEventListener('click', () => els.config.classList.toggle('open'));
+document.getElementById('btn-list').addEventListener('click', () => list(true));
+document.getElementById('btn-more').addEventListener('click', () => list(false));
+document.getElementById('btn-save').addEventListener('click', saveConfig);
+document.getElementById('btn-clear').addEventListener('click', clearConfig);
+document.getElementById('btn-select-all').addEventListener('click', selectAll);
+document.getElementById('btn-select-none').addEventListener('click', selectNone);
+document.getElementById('btn-delete').addEventListener('click', deleteSelected);
+els.prefix.addEventListener('keydown', e => { if (e.key === 'Enter') list(true); });
+
+config = loadConfig();
+if (config) {
+  applyConfigToForm(config);
+  makeClient();
+  list(true);
+} else {
+  els.config.classList.add('open');
+  render();
+}
+</script>
+</body>
+</html>
