@@ -101,6 +101,18 @@
     .card .checkbox { background: rgba(0,0,0,0.6); }
   }
   .card.selected .checkbox { background: var(--accent); border-color: var(--accent); color: white; }
+  .card .view-btn {
+    position: absolute; top: 6px; right: 6px;
+    background: rgba(255,255,255,0.9); border: 1px solid var(--border); border-radius: 3px;
+    width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; line-height: 1; padding: 0; cursor: pointer; color: var(--fg);
+    opacity: 0; transition: opacity 0.1s;
+  }
+  .card:hover .view-btn { opacity: 1; }
+  .card .view-btn:hover { border-color: var(--accent); color: var(--accent); }
+  @media (prefers-color-scheme: dark) {
+    .card .view-btn { background: rgba(0,0,0,0.6); }
+  }
   .empty {
     padding: 40px; text-align: center; color: var(--muted);
     border: 1px dashed var(--border); border-radius: 8px;
@@ -122,6 +134,36 @@
   }
   .modal-inner .list div { padding: 2px 0; word-break: break-all; }
   .modal-inner .actions { display: flex; gap: 8px; justify-content: flex-end; }
+  #lightbox {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.88);
+    display: none; align-items: center; justify-content: center; z-index: 200;
+    flex-direction: column; padding: 20px;
+  }
+  #lightbox.open { display: flex; }
+  #lightbox .stage {
+    flex: 1; width: 100%; display: flex; align-items: center; justify-content: center;
+    min-height: 0; position: relative;
+  }
+  #lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #lightbox .nav {
+    position: absolute; top: 0; bottom: 0; width: 15%; min-width: 48px;
+    display: flex; align-items: center; border: none; background: transparent;
+    color: white; font-size: 32px; cursor: pointer; opacity: 0.6;
+  }
+  #lightbox .nav:hover:not(:disabled) { opacity: 1; }
+  #lightbox .nav:disabled { opacity: 0.15; cursor: not-allowed; }
+  #lightbox .nav.prev { left: 0; justify-content: flex-start; padding-left: 8px; }
+  #lightbox .nav.next { right: 0; justify-content: flex-end; padding-right: 8px; }
+  #lightbox .bar {
+    width: 100%; max-width: 900px; display: flex; align-items: center; gap: 12px;
+    padding: 12px 4px 0; color: white; font-size: 12px;
+  }
+  #lightbox .bar .name { flex: 1; word-break: break-all; opacity: 0.85; }
+  #lightbox .close {
+    position: absolute; top: 12px; right: 16px; background: transparent; border: none;
+    color: white; font-size: 28px; cursor: pointer; opacity: 0.7; line-height: 1;
+  }
+  #lightbox .close:hover { opacity: 1; }
 </style>
 </head>
 <body>
@@ -169,6 +211,19 @@
   </div>
 </div>
 
+<div id="lightbox">
+  <button class="close" id="lb-close" title="Close (Esc)">✕</button>
+  <div class="stage">
+    <button class="nav prev" id="lb-prev" title="Previous (←)">‹</button>
+    <img id="lb-img" alt="">
+    <button class="nav next" id="lb-next" title="Next (→)">›</button>
+  </div>
+  <div class="bar">
+    <span class="name" id="lb-name"></span>
+    <a id="lb-open" href="#" target="_blank" rel="noopener">Open original</a>
+  </div>
+</div>
+
 <script type="module">
 import { AwsClient } from 'https://cdn.jsdelivr.net/npm/aws4fetch@1.0.20/+esm';
 
@@ -192,6 +247,12 @@ const els = {
   modal:       document.getElementById('modal'),
   modalTitle:  document.getElementById('modal-title'),
   modalList:   document.getElementById('modal-list'),
+  lightbox:    document.getElementById('lightbox'),
+  lbImg:       document.getElementById('lb-img'),
+  lbName:      document.getElementById('lb-name'),
+  lbOpen:      document.getElementById('lb-open'),
+  lbPrev:      document.getElementById('lb-prev'),
+  lbNext:      document.getElementById('lb-next'),
 };
 
 let config = null;
@@ -297,6 +358,63 @@ async function openLink(key) {
   }
 }
 
+function imageObjects() {
+  return objects.filter(o => isImage(o.key));
+}
+
+let lbIndex = -1;
+
+async function showLightboxAt(idx) {
+  const imgs = imageObjects();
+  if (idx < 0 || idx >= imgs.length) return;
+  lbIndex = idx;
+  const obj = imgs[idx];
+  els.lbName.textContent = obj.key;
+  els.lbImg.src = '';
+  els.lbPrev.disabled = true;
+  els.lbNext.disabled = true;
+  try {
+    const url = await previewUrl(obj.key);
+    els.lbImg.src = url;
+    els.lbOpen.href = url;
+  } catch (e) {
+    setStatus(`Couldn't load preview: ${e.message}`, 'err');
+  }
+  els.lbPrev.disabled = idx <= 0;
+  els.lbNext.disabled = idx >= imgs.length - 1 && !continuationToken;
+}
+
+function openLightbox(key) {
+  const idx = imageObjects().findIndex(o => o.key === key);
+  if (idx === -1) return;
+  els.lightbox.classList.add('open');
+  showLightboxAt(idx);
+}
+
+function closeLightbox() {
+  els.lightbox.classList.remove('open');
+  els.lbImg.src = '';
+  lbIndex = -1;
+}
+
+function lightboxPrev() {
+  if (lbIndex > 0) showLightboxAt(lbIndex - 1);
+}
+
+async function lightboxNext() {
+  const imgs = imageObjects();
+  if (lbIndex < imgs.length - 1) {
+    showLightboxAt(lbIndex + 1);
+    return;
+  }
+  if (continuationToken) {
+    setStatus('Loading more to continue…', '');
+    await list(false);
+    const grown = imageObjects();
+    if (lbIndex + 1 < grown.length) showLightboxAt(lbIndex + 1);
+  }
+}
+
 async function list(reset) {
   if (!client) {
     els.config.classList.add('open');
@@ -386,6 +504,12 @@ function cardFor(obj) {
   checkbox.textContent = obj.checked ? '✓' : '';
   thumb.appendChild(checkbox);
 
+  const name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = obj.key;
+  name.title = 'Open public link';
+  name.addEventListener('click', e => { e.stopPropagation(); openLink(obj.key); });
+
   if (isImage(obj.key)) {
     const img = document.createElement('img');
     img.loading = 'lazy';
@@ -396,6 +520,14 @@ function cardFor(obj) {
       .then(u => { img.src = u; })
       .catch(() => { thumb.replaceChildren(checkbox, extLabel(obj.key)); });
     thumb.appendChild(img);
+
+    const view = document.createElement('button');
+    view.type = 'button';
+    view.className = 'view-btn';
+    view.title = 'View with next/previous';
+    view.textContent = '⤢';
+    view.addEventListener('click', e => { e.stopPropagation(); openLightbox(obj.key); });
+    thumb.appendChild(view);
   } else {
     const ext = extLabel(obj.key);
     ext.title = 'Open public link';
@@ -403,12 +535,6 @@ function cardFor(obj) {
     thumb.appendChild(ext);
   }
   card.appendChild(thumb);
-
-  const name = document.createElement('div');
-  name.className = 'name';
-  name.textContent = obj.key;
-  name.title = 'Open public link';
-  name.addEventListener('click', e => { e.stopPropagation(); openLink(obj.key); });
   card.appendChild(name);
 
   const meta = document.createElement('div');
@@ -507,6 +633,17 @@ document.getElementById('btn-select-all').addEventListener('click', selectAll);
 document.getElementById('btn-select-none').addEventListener('click', selectNone);
 document.getElementById('btn-delete').addEventListener('click', deleteSelected);
 els.prefix.addEventListener('keydown', e => { if (e.key === 'Enter') list(true); });
+
+document.getElementById('lb-close').addEventListener('click', closeLightbox);
+els.lbPrev.addEventListener('click', lightboxPrev);
+els.lbNext.addEventListener('click', lightboxNext);
+els.lightbox.addEventListener('click', e => { if (e.target === els.lightbox) closeLightbox(); });
+document.addEventListener('keydown', e => {
+  if (!els.lightbox.classList.contains('open')) return;
+  if (e.key === 'Escape') closeLightbox();
+  else if (e.key === 'ArrowLeft') lightboxPrev();
+  else if (e.key === 'ArrowRight') lightboxNext();
+});
 
 config = loadConfig();
 if (config) {
