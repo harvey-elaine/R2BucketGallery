@@ -2,6 +2,8 @@
 
 A single-page browser tool for listing, previewing, and selectively deleting objects in a Cloudflare R2 bucket. No servers, no build step, no dependencies to install — the whole app is one `index.html` that talks directly to R2's S3-compatible API using `aws4fetch` (loaded from a CDN) for SigV4 signing.
 
+**Using this as part of a free Gyazo replacement?** See [`SHAREX-SETUP.md`](./SHAREX-SETUP.md) for the full ShareX + R2 capture-and-upload pipeline this tool is meant to complement — this tool handles browsing and cleanup once screenshots start piling up in the bucket. This is a functional replacement for Gyazo or similar screenshot sharing tools.
+
 ## What it does
 
 - Lists objects in a bucket, 100 at a time, with a prefix filter and a Load-more button for buckets that have more.
