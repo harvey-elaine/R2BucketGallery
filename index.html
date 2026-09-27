@@ -144,7 +144,7 @@
     flex: 1; width: 100%; display: flex; align-items: center; justify-content: center;
     min-height: 0; position: relative;
   }
-  #lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: pointer; }
   #lightbox .nav {
     position: absolute; top: 0; bottom: 0; width: 15%; min-width: 48px;
     display: flex; align-items: center; border: none; background: transparent;
@@ -215,7 +215,7 @@
   <button class="close" id="lb-close" title="Close (Esc)">✕</button>
   <div class="stage">
     <button class="nav prev" id="lb-prev" title="Previous (←)">‹</button>
-    <img id="lb-img" alt="">
+    <img id="lb-img" alt="" title="Open public link">
     <button class="nav next" id="lb-next" title="Next (→)">›</button>
   </div>
   <div class="bar">
@@ -638,6 +638,11 @@ document.getElementById('lb-close').addEventListener('click', closeLightbox);
 els.lbPrev.addEventListener('click', lightboxPrev);
 els.lbNext.addEventListener('click', lightboxNext);
 els.lightbox.addEventListener('click', e => { if (e.target === els.lightbox) closeLightbox(); });
+els.lbImg.addEventListener('click', e => {
+  e.stopPropagation();
+  const imgs = imageObjects();
+  if (lbIndex >= 0 && lbIndex < imgs.length) openLink(imgs[lbIndex].key);
+});
 document.addEventListener('keydown', e => {
   if (!els.lightbox.classList.contains('open')) return;
   if (e.key === 'Escape') closeLightbox();
