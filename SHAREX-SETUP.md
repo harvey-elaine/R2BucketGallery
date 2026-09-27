@@ -1,13 +1,13 @@
 # ShareX + Cloudflare R2 — a free-ish Gyazo replacement
 
-Gyazo's free tier and pricing changes are what motivated this: a hotkey screenshot tool that
-uploads instantly and puts a shareable link on your clipboard, without a subscription. This is
-that pipeline, built on the free ShareX capture tool and Cloudflare R2 for storage — R2 has zero
-egress fees, so serving images out costs nothing no matter how often the links are viewed.
+Gyazo's outage in September 2026 motivated this: a Windows-based hotkey screenshot tool that
+uploads instantly and puts a shareable link on your clipboard, without a subscription, and in your control. This is
+the pipeline, built on the free ShareX capture tool and Cloudflare R2 for storage. R2 has zero
+egress fees, so serving images out costs nothing.
 
-**This repo's main tool (`index.html`) is the natural companion to this setup**: R2 has no built-in
+**This repo's main tool (`index.html`) is the companion to this setup**: R2 has no easy
 gallery, so once screenshots are piling up in the bucket, use the bucket manager to browse
-thumbnails and delete old ones.
+thumbnails, get the public links to any of them, and delete old ones.
 
 **End result:** press a hotkey, drag a region, and a direct image link (`https://img.yourdomain.com/abc123.png`)
 is on your clipboard, with a local copy saved automatically.
@@ -19,7 +19,7 @@ Mostly, not entirely:
 - **R2 storage/requests:** free up to 10 GB stored, 1M writes/month, 10M reads/month, and egress
   (serving the images) is *always* free regardless of tier — that's R2's whole pitch versus S3.
   Ordinary screenshot volume (a few hundred a month) takes a couple of years to fill 10 GB, and
-  even once it does, storage beyond that is fractions of a cent per GB/month.
+  even if it does, storage beyond that is fractions of a cent per GB/month.
 - **A domain you control:** R2's custom-domain feature requires a domain whose DNS is on
   Cloudflare. If you don't already have a spare one, a `.com` costs roughly $10–11/year at
   Cloudflare Registrar (registered at cost, no markup). This is the one real recurring cost.
@@ -35,7 +35,7 @@ spare/parked domain, or a freshly bought one used only for this, avoids the risk
 
 ## What you need
 
-- A Cloudflare account (free).
+- A [Cloudflare account](https://dash.cloudflare.com/sign-up) (free).
 - A domain you're willing to delegate to Cloudflare's nameservers (buy one there, or use a spare).
 - [ShareX](https://getsharex.com/) installed (Windows only).
 
@@ -85,7 +85,9 @@ spare/parked domain, or a freshly bought one used only for this, avoids the risk
 3. **Destinations → Image uploader → Amazon S3**, and **Destinations → File uploader → Amazon
    S3** as well (some ShareX versions route through the file uploader for non-image-specific
    tasks; setting only one leaves the other pointed at its default, which errors).
-4. **After capture tasks**, tick **Upload image to host**.
+4. **After capture tasks**, tick both **Save image to file** and **Upload image to host** — the
+   first is what gives you a local copy on disk alongside the upload (see the note under "Optional:
+   automatic expiry" below).
 5. Set your preferred hotkeys under **Hotkey settings** (ShareX ships with region/full-screen/
    window capture and video/GIF recording hotkeys out of the box).
 
@@ -98,11 +100,22 @@ spare/parked domain, or a freshly bought one used only for this, avoids the risk
 3. Paste it into Discord/Slack/wherever and confirm it renders inline as an image, not a bare
    link — some hosts that look fine in a browser fail this check.
 
+### Browsing and cleaning up the bucket
+
+R2 has no built-in gallery — the Cloudflare dashboard lists objects by name and size with no
+thumbnails, so once screenshots start piling up there's no easy way to review or trim them from
+there. This repo's main tool (see the [top-level README](./README.md)) is a single-page app for
+exactly that: browse thumbnails, click to select, batch-delete. It has no build step, so any simple
+static host works — the README's instructions use Netlify as the example, but GitHub Pages,
+Cloudflare Pages, or opening the file locally all work too.
+
 ### Optional: automatic expiry
 
 R2 buckets support lifecycle rules (Bucket → **Settings** → **Object lifecycle rules**) to
 auto-delete objects after N days — useful if you don't want screenshots to accumulate forever and
-don't need every one kept long-term. Not required; the free tier's headroom is large enough that
+don't need every one kept long-term. Because step 4 above also saves a local copy on capture, an
+expiry rule only removes the *cloud* copy and its public link — nothing is lost, so there's no
+separate backup to maintain. Not required either way; the free tier's headroom is large enough that
 most people won't need this for years.
 
 ## Troubleshooting notes
