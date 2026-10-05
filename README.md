@@ -6,7 +6,7 @@ A single-page browser tool for listing, previewing, and selectively deleting obj
 
 ## What it does
 
-- Lists objects in a bucket, 100 at a time, with a prefix filter and a Load-more button for buckets that have more.
+- Lists objects newest first by R2 last-modified date, with a prefix filter. Fetches the complete matching listing before sorting, then displays 100 at a time with a Load-more button.
 - Renders inline thumbnails for image content types (`png`, `jpg`, `gif`, `webp`, `svg`, `avif`, `bmp`, `tiff`, `heic`, `heif`).
 - Click any card to select; batch-delete with a confirmation modal that shows the exact key list.
 - Credentials live in the browser's `localStorage` for this origin — nothing is sent anywhere except directly to R2.
@@ -72,6 +72,6 @@ The first command deploys to a preview URL for a smoke test; the second promotes
 ## Known limits (first cut)
 
 - No rename, move, upload, or per-object download — this is a browse-and-delete tool.
-- List is paginated at 100 per request. Buckets with tens of thousands of objects need repeated Load-more clicks.
-- No sort controls yet (server returns in key order). Prefix filter is the primary navigation.
+- Refresh fetches all matching object metadata in pages of up to 1,000 to ensure global date ordering. Large buckets may take longer to refresh; thumbnails are displayed 100 at a time.
+- Order is fixed to newest first by last-modified date (upload or replacement time), with filename as a tie-breaker. Prefix filter narrows the listing.
 - Deletes are individual `DELETE` requests in parallel, not `POST ?delete` batch. Fine for tens of objects; if you want to delete thousands at once, this needs the batch API.

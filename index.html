@@ -257,7 +257,8 @@ const els = {
 
 let config = null;
 let client = null;
-let continuationToken = null;
+let visibleCount = PAGE_SIZE;
+let listing = false;
 let objects = [];
 
 function encodeKey(key) {
@@ -318,7 +319,7 @@ function clearConfig() {
   localStorage.removeItem(LS_KEY);
   config = null; client = null;
   applyConfigToForm({});
-  objects = []; render();
+  objects = []; visibleCount = PAGE_SIZE; els.more.hidden = true; closeLightbox(); render();
   setStatus('Cleared. Enter credentials above.', '');
 }
 
@@ -359,7 +360,7 @@ async function openLink(key) {
 }
 
 function imageObjects() {
-  return objects.filter(o => isImage(o.key));
+  return objects.slice(0, visibleCount).filter(o => isImage(o.key));
 }
 
 let lbIndex = -1;
@@ -381,7 +382,7 @@ async function showLightboxAt(idx) {
     setStatus(`Couldn't load preview: ${e.message}`, 'err');
   }
   els.lbPrev.disabled = idx <= 0;
-  els.lbNext.disabled = idx >= imgs.length - 1 && !continuationToken;
+  els.lbNext.disabled = idx >= imgs.length - 1 && visibleCount >= objects.length;
 }
 
 function openLightbox(key) {
@@ -407,7 +408,7 @@ async function lightboxNext() {
     showLightboxAt(lbIndex + 1);
     return;
   }
-  if (continuationToken) {
+  if (visibleCount < objects.length) {
     setStatus('Loading more to continue…', '');
     await list(false);
     const grown = imageObjects();
@@ -415,60 +416,83 @@ async function lightboxNext() {
   }
 }
 
+function compareNewest(a, b) {
+  const dateA = Date.parse(a.lastModified) || 0;
+  const dateB = Date.parse(b.lastModified) || 0;
+  return dateB - dateA || a.key.localeCompare(b.key);
+}
+
+function updateListStatus() {
+  els.more.hidden = visibleCount >= objects.length;
+  setStatus(`${Math.min(visibleCount, objects.length)} of ${objects.length} objects · newest first`, 'ok');
+}
+
 async function list(reset) {
+  if (listing) return;
   if (!client) {
     els.config.classList.add('open');
     setStatus('Not configured', '');
     return;
   }
-  if (reset) { objects = []; continuationToken = null; }
-  setStatus('Loading…', '');
+  if (!reset) {
+    visibleCount += PAGE_SIZE;
+    updateListStatus();
+    render();
+    return;
+  }
+  listing = true;
+  closeLightbox();
   els.more.hidden = true;
-
-  const url = new URL(endpoint());
-  url.searchParams.set('list-type', '2');
-  url.searchParams.set('max-keys', String(PAGE_SIZE));
+  const listingClient = client;
+  const listingConfig = config;
+  const base = endpoint();
   const prefix = els.prefix.value.trim();
-  if (prefix) url.searchParams.set('prefix', prefix);
-  if (continuationToken) url.searchParams.set('continuation-token', continuationToken);
-
-  let res;
+  const loaded = [];
+  let token = null;
   try {
-    const signed = await client.sign(url.toString(), { method: 'GET' });
-    res = await fetch(signed);
+    do {
+      setStatus(`Loading dates… ${loaded.length} objects`, '');
+      const url = new URL(base);
+      url.searchParams.set('list-type', '2');
+      url.searchParams.set('max-keys', '1000');
+      if (prefix) url.searchParams.set('prefix', prefix);
+      if (token) url.searchParams.set('continuation-token', token);
+      const signed = await listingClient.sign(url.toString(), { method: 'GET' });
+      const res = await fetch(signed);
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`Error ${res.status}: ${body.slice(0, 200) || res.statusText}`);
+      }
+      const doc = new DOMParser().parseFromString(await res.text(), 'application/xml');
+      if (doc.querySelector('parsererror')) throw new Error('Failed to parse response');
+      for (const c of doc.querySelectorAll('Contents')) {
+        loaded.push({
+          key: c.querySelector('Key')?.textContent || '',
+          size: parseInt(c.querySelector('Size')?.textContent || '0', 10),
+          lastModified: c.querySelector('LastModified')?.textContent || '',
+          checked: false,
+        });
+      }
+      const truncated = doc.querySelector('IsTruncated')?.textContent === 'true';
+      const nextToken = doc.querySelector('NextContinuationToken')?.textContent;
+      if (truncated && (!nextToken || nextToken === token)) {
+        throw new Error('Incomplete listing: missing or repeated continuation token. Refresh to retry.');
+      }
+      token = truncated ? nextToken : null;
+    } while (token);
+    if (config !== listingConfig) return;
+    objects = loaded.sort(compareNewest);
+    visibleCount = PAGE_SIZE;
+    updateListStatus();
+    render();
   } catch (e) {
-    setStatus(`Network error: ${e.message}`, 'err');
-    return;
+    if (config === listingConfig) {
+      setStatus(e.message, 'err');
+      els.more.hidden = visibleCount >= objects.length;
+    }
+  } finally {
+    listing = false;
   }
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    setStatus(`Error ${res.status}: ${body.slice(0, 200) || res.statusText}`, 'err');
-    return;
-  }
-  const xml = await res.text();
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  if (doc.querySelector('parsererror')) {
-    setStatus('Failed to parse response', 'err');
-    return;
-  }
-  const contents = [...doc.querySelectorAll('Contents')].map(c => ({
-    key:          c.querySelector('Key')?.textContent          || '',
-    size:         parseInt(c.querySelector('Size')?.textContent || '0', 10),
-    lastModified: c.querySelector('LastModified')?.textContent  || '',
-    checked:      false,
-  }));
-  objects.push(...contents);
-  const isTruncated = doc.querySelector('IsTruncated')?.textContent === 'true';
-  const nextToken   = doc.querySelector('NextContinuationToken')?.textContent;
-  continuationToken = isTruncated && nextToken ? nextToken : null;
-  els.more.hidden = !continuationToken;
-
-  setStatus(
-    `${objects.length} object${objects.length === 1 ? '' : 's'} loaded` +
-    (continuationToken ? ' (more available)' : ''),
-    'ok',
-  );
-  render();
 }
 
 function render() {
@@ -482,7 +506,7 @@ function render() {
     return;
   }
   const frag = document.createDocumentFragment();
-  for (const obj of objects) frag.appendChild(cardFor(obj));
+  for (const obj of objects.slice(0, visibleCount)) frag.appendChild(cardFor(obj));
   els.grid.appendChild(frag);
   updateActionButtons();
 }
@@ -562,7 +586,7 @@ function updateActionButtons() {
 }
 
 function selectAll() {
-  for (const o of objects) o.checked = true;
+  for (const o of objects.slice(0, visibleCount)) o.checked = true;
   render();
 }
 
@@ -614,6 +638,8 @@ async function deleteSelected() {
   );
   const failed = results.filter(r => r.status === 'rejected');
   objects = objects.filter(o => !succeededKeys.has(o.key));
+  closeLightbox();
+  els.more.hidden = visibleCount >= objects.length;
   render();
 
   if (failed.length === 0) {
